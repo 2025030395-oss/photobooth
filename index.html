@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cabina de Fotos Retro</title>
+    <!-- Vinculamos el archivo de estilos externo -->
+    <link rel="stylesheet" href="estilos/style.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <!-- ================= SCENE 1: ANIMACIÓN DE ENTRADA ================= -->
+    <div id="intro-scene" class="scene active">
+        <div class="booth-exterior">
+            <div class="booth-sign">FOTO BOOTH</div>
+            <div class="curtains-container">
+                <div class="curtain left-curtain"></div>
+                <div class="curtain right-curtain"></div>
+            </div>
+            <div class="booth-slot"></div>
+        </div>
+
+        <!-- El muñequito animado que camina hacia la cabina -->
+        <div id="character" class="character walking">
+            <div class="head"></div>
+            <div class="body"></div>
+            <div class="legs"></div>
+        </div>
+
+        <div class="intro-content">
+            <h1>¡Bienvenida a tu Cabina!</h1>
+            <p>Colócate frente a la lente y captura unos momentos bonitos.</p>
+            <button id="enter-btn" class="btn primary-btn">ENTRAR A LA CABINA</button>
+        </div>
+    </div>
+
+    <!-- ================= SCENE 2: CABINA DE FOTOS EN VIVO ================= -->
+    <div id="booth-scene" class="scene">
+        <div class="booth-inner">
+            <header class="booth-header">
+                <h2>MARROCOCCO'S BOOTH</h2>
+                <div class="settings-bar">
+                    <button id="mirror-btn" class="icon-btn" title="Espejo">🔄 Espejo</button>
+                    <select id="timer-select" class="select-styled">
+                        <option value="3">Cuenta: 3s</option>
+                        <option value="5">Cuenta: 5s</option>
+                    </select>
+                    <select id="filter-select" class="select-styled">
+                        <option value="none">Filtro: Normal</option>
+                        <option value="grayscale">Blanco y Negro</option>
+                        <option value="sepia">Sepia Vintage</option>
+                        <option value="pastel">Pastel Pop</option>
+                        <option value="cyber">Cyber Neon</option>
+                    </select>
+                </div>
+            </header>
+
+            <div class="camera-stage">
+                <div id="flash-overlay" class="flash"></div>
+                <!-- Video de la cámara web -->
+                <video id="webcam" autoplay playsinline muted></video>
+                <!-- Canvas de respaldo si no hay cámara -->
+                <canvas id="fallback-canvas" class="hidden"></canvas>
+                
+                <!-- Cuenta regresiva gigante -->
+                <div id="countdown-display" class="hidden">3</div>
+            </div>
+
+            <div class="booth-footer">
+                <div class="strip-preview-slots">
+                    <div class="mini-slot" id="slot-0">1</div>
+                    <div class="mini-slot" id="slot-1">2</div>
+                    <div class="mini-slot" id="slot-2">3</div>
+                    <div class="mini-slot" id="slot-3">4</div>
+                </div>
+                <button id="start-shoot-btn" class="btn action-btn">¡TOMAR FOTOS!</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= SCENE 3: RESULTADOS Y DESCARGA ================= -->
+    <div id="result-scene" class="scene">
+        <div class="result-container">
+            <h2>¡Tus fotos están listas!</h2>
+            <div class="canvas-preview-wrapper">
+                <canvas id="result-canvas"></canvas>
+            </div>
+            <div class="result-actions">
+                <button id="download-btn" class="btn primary-btn">DESCARGAR FOTOS</button>
+                <button id="restart-btn" class="btn secondary-btn">TOMAR OTRA SESIÓN</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Script de lógica JavaScript -->
+    <script>
+        // --- Referencias de Elementos ---
+        const introScene = document.getElementById('intro-scene');
+        const boothScene = document.getElementById('booth-scene');
+        const resultScene = document.getElementById('result-scene');
+        const enterBtn = document.getElementById('enter-btn');
+        const character = document.getElementById('character');
+        const leftCurtain = document.querySelector('.left-curtain');
+        const rightCurtain = document.querySelector('.right-curtain');
+        
+        const video = document.getElementById('webcam');
+        const fallbackCanvas = document.getElementById('fallback-canvas');
+        const flashOverlay = document.getElementById('flash-overlay');
+        const countdownDisplay = document.getElementById('countdown-display');
+        const startShootBtn = document.getElementById('start-shoot-btn');
+        const mirrorBtn = document.getElementById('mirror-btn');
+        const timerSelect = document.getElementById('timer-select');
+        const filterSelect = document.getElementById('filter-select');
+        const downloadBtn = document.getElementById('download-btn');
+        const restartBtn = document.getElementById('restart-btn');
+        const resultCanvas = document.getElementById('result-canvas');
+
+        let capturedImages = [];
+        let isMirrored = true;
+        let currentFilter = 'none';
+        let stream = null;
+
+        // --- 1. Animación de Entrada y Apertura de Cabina ---
+        enterBtn.addEventListener('click', async () => {
+            enterBtn.disabled = true;
+            character.classList.add('walk-to-booth');
+
+            // Esperar a que el personaje camine (2 segundos)
+            setTimeout(async () => {
+                character.style.opacity = '0';
+                leftCurtain.classList.add('open-left');
+                rightCurtain.classList.add('open-right');
+            }, 1800);
+
+            // Cambiar de escena después de abrir las cortinas
+            setTimeout(async () => {
+                introScene.classList.remove('active');
+                boothScene.classList.add('active');
+                await initCamera();
+            }, 2600);
+        });
+
+        // --- 2. Inicializar Cámara Web ---
+        async function initCamera() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 }, audio: false });
+                video.srcObject = stream;
+                video.style.display = 'block';
+                fallbackCanvas.classList.add('hidden');
+            } catch (err) {
+                console.warn("Cámara no disponible o permisos denegados. Activando animación de respaldo.", err);
+                video.style.display = 'none';
+                fallbackCanvas.classList.remove('hidden');
+                startFallbackAnimation();
+            }
+        }
+
+        // Animación de respaldo interactiva en Canvas si no hay webcam física
+        function startFallbackAnimation() {
+            const ctx = fallbackCanvas.getContext('2d');
+            fallbackCanvas.width = 640;
+            fallbackCanvas.height = 480;
+            let hue = 0;
+            function draw() {
+                ctx.fillStyle = `hsl(${hue}, 70%, 80%)`;
+                ctx.fillRect(0, 0, fallbackCanvas.width, fallbackCanvas.height);
+                ctx.fillStyle = '#333';
+                ctx.font = 'bold 30px Outfit';
+                ctx.textAlign = 'center';
+                ctx.fillText("✨ MODO SIMULADOR ✨", fallbackCanvas.width / 2, 200);
+                ctx.font = '20px Outfit';
+                ctx.fillText("Sonríe a la cámara virtual", fallbackCanvas.width / 2, 250);
+                hue = (hue + 1) % 360;
+                if (!boothScene.classList.contains('active')) return;
+                requestAnimationFrame(draw);
+            }
+            draw();
+        }
+
+        // --- Controles de Cámara ---
+        mirrorBtn.addEventListener('click', () => {
+            isMirrored = !isMirrored;
+            video.style.transform = isMirrored ? 'scaleX(-1)' : 'scaleX(1)';
+            mirrorBtn.style.background = isMirrored ? '#ffe6f0' : '#fff';
+        });
+
+        filterSelect.addEventListener('change', (e) => {
+            currentFilter = e.target.value;
+            applyFilterStyle(video, currentFilter);
+        });
+
+        function applyFilterStyle(element, filter) {
+            element.className = '';
+            if (filter !== 'none') element.classList.add(`filter-${filter}`);
+        }
+
+        // --- 3. Secuencia de 4 Fotos ---
+        startShootBtn.addEventListener('click', async () => {
+            startShootBtn.disabled = true;
+            capturedImages = [];
+            
+            for (let i = 0; i < 4; i++) {
+                // Resetear mini slots visuales
+                document.getElementById(`slot-${i}`).style.background = '#ffd1dc';
+                
+                // Cuenta regresiva
+                const seconds = parseInt(timerSelect.value);
+                await runCountdown(seconds);
+
+                // Disparo (Flash + Sonido + Captura)
+                triggerFlash();
+                playBeepSound();
+                captureFrame(i);
+                
+                // Pausa breve entre foto y foto
+                if (i < 3) await new Promise(r => setTimeout(r, 1200));
+            }
+
+            // Apagar cámara y pasar a resultados
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+            
+            boothScene.classList.remove('active');
+            resultScene.classList.add('active');
+            generatePhotoStrip();
+            startShootBtn.disabled = false;
+        });
+
+        function runCountdown(seconds) {
+            return new Promise(resolve => {
+                let currentSec = seconds;
+                countdownDisplay.textContent = currentSec;
+                countdownDisplay.classList.remove('hidden');
+                countdownDisplay.style.animation = 'none';
+                void countdownDisplay.offsetWidth; // Trigger reflow
+                countdownDisplay.style.animation = 'pulseNumber 1s infinite';
+
+                const interval = setInterval(() => {
+                    currentSec--;
+                    if (currentSec > 0) {
+                        countdownDisplay.textContent = currentSec;
+                    } else {
+                        clearInterval(interval);
+                        countdownDisplay.classList.add('hidden');
+                        resolve();
+                    }
+                }, 1000);
+            });
+        }
+
+        function triggerFlash() {
+            flashOverlay.style.opacity = '1';
+            setTimeout(() => {
+                flashOverlay.style.opacity = '0';
+            }, 200);
+        }
+
+        function playBeepSound() {
+            try {
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.15);
+            } catch (e) {
+                // Audio no soportado o bloqueado por navegador
+            }
+        }
+
+        function captureFrame(index) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 640;
+            canvas.height = 480;
+            const ctx = canvas.getContext('2d');
+
+            if (video.style.display !== 'none' && video.readyState === video.HAVE_ENOUGH_DATA) {
+                if (isMirrored) {
+                    ctx.translate(canvas.width, 0);
+                    ctx.scale(-1, 1);
+                }
+                
+                // Aplicar filtros visuales al contexto si es necesario
+                if (currentFilter === 'grayscale') ctx.filter = 'grayscale(100%)';
+                if (currentFilter === 'sepia') ctx.filter = 'sepia(100%)';
+                if (currentFilter === 'pastel') ctx.filter = 'contrast(110%) brightness(110%) saturate(130%)';
+                if (currentFilter === 'cyber') ctx.filter = 'hue-rotate(90deg) saturate(200%)';
+
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            } else {
+                // Dibujar respaldo si la cámara simulaba
+                ctx.fillStyle = '#ffb6c1';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#fff';
+                ctx.font = 'bold 40px Outfit';
+                ctx.textAlign = 'center';
+                ctx.fillText(`FOTO #${index + 1}`, canvas.width / 2, canvas.height / 2);
+            }
+
+            capturedImages.push(canvas);
+            document.getElementById(`slot-${index}`).style.background = '#4CAF50';
+            document.getElementById(`slot-${index}`).style.color = '#fff';
+            document.getElementById(`slot-${index}`).textContent = '✓';
+        }
+
+        // --- 4. Generación de Fotostrip Final ---
+        function generatePhotoStrip() {
+            const ctx = resultCanvas.getContext('2d');
+            const stripWidth = 600;
+            const photoWidth = 520;
+            const photoHeight = 390;
+            const padding = 40;
+            const headerHeight = 110;
+            const footerHeight = 90;
+            const gap = 30;
+
+            resultCanvas.width = stripWidth;
+            resultCanvas.height = headerHeight + (photoHeight * 4) + (gap * 3) + footerHeight + (padding * 2);
+
+            // Fondo de la tira (Estilo Tira Clásica Pastel)
+            ctx.fillStyle = '#fff5f8';
+            ctx.fillRect(0, 0, resultCanvas.width, resultCanvas.height);
+
+            // Borde decorativo exterior
+            ctx.strokeStyle = '#ffb6c1';
+            ctx.lineWidth = 8;
+            ctx.strokeRect(15, 15, resultCanvas.width - 30, resultCanvas.height - 30);
+
+            // Encabezado
+            ctx.fillStyle = '#ff4d94';
+            ctx.font = 'bold 36px "Press Start 2P", monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText("PHOTO BOOTH", stripWidth / 2, padding + 55);
+
+            ctx.fillStyle = '#666';
+            ctx.font = '16px Outfit, sans-serif';
+            ctx.fillText("✨ Recuerdo Especial ✨", stripWidth / 2, padding + 85);
+
+            // Dibujar las 4 fotos
+            let currentY = padding + headerHeight;
+            capturedImages.forEach((img, index) => {
+                const x = (stripWidth - photoWidth) / 2;
+                
+                // Marco blanco para cada foto individual
+                ctx.fillStyle = '#ffffff';
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.1)';
+                ctx.shadowBlur = 10;
+                ctx.fillRect(x - 10, currentY - 10, photoWidth + 20, photoHeight + 20);
+                ctx.shadowBlur = 0; // limpiar sombra
+
+                ctx.drawImage(img, x, currentY, photoWidth, photoHeight);
+                currentY += photoHeight + gap;
+            });
+
+            // Pie de página con fecha y marca
+            const today = new Date().toLocaleDateString();
+            ctx.fillStyle = '#333';
+            ctx.font = 'bold 18px Outfit, sans-serif';
+            ctx.fillText(`Marrococco's Café • ${today}`, stripWidth / 2, resultCanvas.height - padding - 35);
+        }
+
+        // Descarga de Imagen
+        downloadBtn.addEventListener('click', () => {
+            const link = document.createElement('a');
+            link.download = `fotostrip-${Date.now()}.png`;
+            link.href = resultCanvas.toDataURL('image/png');
+            link.click();
+        });
+
+        // Reiniciar Sesión
+        restartBtn.addEventListener('click', () => {
+            resultScene.classList.remove('active');
+            introScene.classList.add('active');
+            enterBtn.disabled = false;
+            character.style.opacity = '1';
+            character.classList.remove('walk-to-booth');
+            leftCurtain.classList.remove('open-left');
+            rightCurtain.classList.remove('open-right');
+            
+            // Resetear slots
+            for (let i = 0; i < 4; i++) {
+                const slot = document.getElementById(`slot-${i}`);
+                slot.style.background = '#ffe6f0';
+                slot.style.color = '#ff4d94';
+                slot.textContent = i + 1;
+            }
+        });
+    </script>
+</body>
+</html>
